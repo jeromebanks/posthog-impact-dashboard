@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leverage on Others — Methodology</title>
+<link rel="stylesheet" href="methodology.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="./">← Methodology</a> / Leverage on Others</p>
+  <div class="eyebrow" style="color:var(--series-2)">35% of the Impact Score</div>
+  <h1>Leverage on Others</h1>
+  <p class="subtitle lede">How much has this person helped teammates ship, measured by
+  substantive code review — the clearest force-multiplier signal GitHub data can show.</p>
+
+  <h2>The intuition</h2>
+  <p>Shipping your own code is direct impact. Reviewing someone else's code well — catching a bug,
+  pushing back on an approach, asking the question that saves a production incident — is
+  <em>leveraged</em> impact: it improves work you didn't personally write, and it scales with how
+  many different people you help, not just how much code you personally produce. This component
+  tries to isolate that specific signal from the much noisier stream of "review" activity GitHub
+  actually contains.</p>
+
+  <h2>What counts as a review, here</h2>
+  <p>Not every review submission counts. A review only qualifies if:</p>
+  <ul>
+    <li>its <strong>state</strong> is <code>APPROVED</code> or <code>CHANGES_REQUESTED</code> — an
+    actual verdict, not a bare comment thread; and</li>
+    <li>its <strong>body</strong> is longer than 20 characters — enough to rule out a bare
+    "LGTM 👍" or "+1" as a substantive contribution.</li>
+  </ul>
+  <p>Reviews from automated tools — CodeRabbit, Greptile, PostHog's own internal review bot
+  (<code>stamphog</code>), and similar — are excluded entirely, on both sides of the calculation
+  (as a reviewer, and as someone whose PR was reviewed).</p>
+
+  <h2>The formula</h2>
+  <pre><code>substantive_reviews = count of qualifying reviews this engineer gave
+distinct_authors    = count of different people whose PRs they reviewed
+
+Leverage_raw = substantive_reviews × log(1 + distinct_authors)
+
+Leverage on Others = percentile_rank(Leverage_raw) across all engineers</code></pre>
+
+  <h3>Why multiply by <code>log(1 + distinct authors)</code></h3>
+  <p>Ten substantive reviews spread across eight different teammates represents broader,
+  more valuable help to the team than ten substantive reviews given to the same one person
+  over and over — the second pattern looks more like a close mentor/mentee pair than
+  org-wide leverage. The <code>log1p</code> term rewards breadth without letting it run away:
+  going from reviewing 1 person to 8 people matters a lot; going from 8 to 16 matters less
+  per person, which log-damping captures naturally.</p>
+
+  <h2>Worked example</h2>
+  <p>Two engineers, each with exactly 10 substantive reviews in the window:</p>
+  <table>
+    <tr><th>Engineer</th><th class="num">Reviews</th><th class="num">Distinct authors reviewed</th><th class="num">log(1+n)</th><th class="num">Leverage_raw</th></tr>
+    <tr><td><strong>Concentrated</strong> — reviews mostly one teammate</td><td class="num">10</td><td class="num">1</td><td class="num">0.69</td><td class="num">6.9</td></tr>
+    <tr><td><strong>Broad</strong> — reviews spread across the team</td><td class="num">10</td><td class="num">8</td><td class="num">2.19</td><td class="num">21.9</td></tr>
+  </table>
+  <p>Same review count, but "Broad" scores roughly 3x higher — the formula is measuring how many
+  different people were helped, not just how many review actions were taken.</p>
+
+  <div class="callout">
+    <strong>What this deliberately doesn't include: review speed.</strong> An earlier version of
+    this metric added a small bonus for fast review turnaround, measured as time from PR creation
+    to this reviewer's first review. That interval includes time before the reviewer was ever
+    actually asked to look at the PR, so it wasn't measuring responsiveness — it was measuring
+    something closer to "how quickly did anyone happen to look at this," which isn't attributable
+    to a specific reviewer. Rather than ship a plausible-looking number built on a shaky timestamp,
+    it was removed. Leverage on Others is currently pure count-and-breadth, nothing time-based.
+  </div>
+
+  <footer class="bottom">
+    <a href="./">← All methodology pages</a> · <a href="../">Back to the dashboard</a>
+  </footer>
+</div>
+</body>
+</html>

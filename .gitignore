@@ -1,2 +1,4 @@
 data/fetch.log
 screenshot-*.png
+__pycache__/
+methodology/_preview*.png

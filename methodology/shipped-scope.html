@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shipped Scope — Methodology</title>
+<link rel="stylesheet" href="methodology.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="./">← Methodology</a> / Shipped Scope</p>
+  <div class="eyebrow" style="color:var(--series-1)">45% of the Impact Score</div>
+  <h1>Shipped Scope</h1>
+  <p class="subtitle lede">How structurally consequential is a person's typical merged PR — not how
+  many PRs they merge, and not how many lines or files each one touches.</p>
+
+  <h2>The intuition</h2>
+  <p>If you change a file that only you ever touch, the blast radius of getting it wrong is small —
+  you find out, you fix it, nobody else was depending on it. If you change a file that a dozen other
+  engineers also regularly touch, you're operating in shared, load-bearing territory: more people are
+  depending on that code being right, and more people would be affected if it weren't. Shipped Scope
+  tries to measure the second thing — <strong>how many other engineers' work intersects with yours</strong>
+  — using nothing but "who touched which files, when," which is the one signal GitHub data can give
+  cleanly.</p>
+
+  <h2>The formula</h2>
+  <pre><code>for every file in the 90-day window:
+    file_weight(file, this_PR) = sqrt(
+        count of OTHER engineers (not this PR's author)
+        who also touched `file` somewhere in the window
+    )
+
+PR_reach = mean(file_weight) across all files the PR touches
+
+Engineer_reach = mean(PR_reach) across all of the engineer's
+                 merged, non-mechanical PRs
+
+Shipped Scope = percentile_rank(Engineer_reach) across all engineers</code></pre>
+
+  <h3>Why <code>sqrt()</code></h3>
+  <p>Without damping, a file touched by 40 other people would count for literally 40x a file touched
+  by 1 other person — a single very "hot" shared file (a core schema, a widely-imported utility)
+  would dominate the whole score for anyone unlucky or lucky enough to touch it. Square-rooting
+  compresses that: going from 1 co-toucher to 4 only doubles the weight, not quadruples it. It still
+  rewards touching shared territory — it just stops one hotspot file from swamping everything else.</p>
+
+  <h3>Why <em>average</em> across files, not sum</h3>
+  <p>Summing the per-file weights within a PR would mean a 20-file PR automatically scores higher
+  than a 1-file PR, structural consequence held equal — the PR would win on file count alone, which
+  is exactly the kind of size-proxy this metric exists to avoid. Averaging measures the PR's typical
+  file, regardless of how many files it happens to touch.</p>
+
+  <h3>Why <em>average</em> across PRs, not sum</h3>
+  <p>This is the more important of the two averages. Summing an engineer's per-PR contributions
+  across all their merged PRs would mean whoever simply merges the most PRs wins, even with the
+  per-file averaging fix in place — someone with 400 PRs of modest reach can out-accumulate someone
+  with 20 PRs of very high reach. Averaging measures the <em>typical</em> consequence of this
+  person's work, which is what "impact per PR" is actually supposed to mean, and is what makes it
+  possible for someone with very few but very consequential PRs to rank highly (see the worked
+  example below).</p>
+
+  <div class="callout warn">
+    <strong>This is a proxy for structural reach, not business impact.</strong> Touching code many
+    engineers depend on is a real, defensible signal — but GitHub data cannot tell you whether that
+    code shipped a feature customers loved or fixed a bug nobody noticed. Shipped Scope answers "how
+    load-bearing is this person's typical change," not "how much revenue did it generate."
+  </div>
+
+  <h2>Worked example</h2>
+  <p>Two toy engineers, three files in the window, to make the arithmetic concrete.</p>
+
+  <table>
+    <tr><th>File</th><th>Touched by</th><th class="num">Other engineers</th><th class="num">sqrt(weight)</th></tr>
+    <tr><td><code>billing/invoice.py</code></td><td>alice, ben, cho, dan</td><td class="num">3</td><td class="num">1.73</td></tr>
+    <tr><td><code>billing/currency.py</code></td><td>alice, ben</td><td class="num">1</td><td class="num">1.00</td></tr>
+    <tr><td><code>billing/README.md</code></td><td>alice only</td><td class="num">0</td><td class="num">0.00</td></tr>
+  </table>
+
+  <p><strong>Alice</strong> ships <em>one</em> PR that touches all three files above:</p>
+  <table>
+    <tr><td>PR reach</td><td class="num">mean(1.73, 1.00, 0.00) = <strong>0.91</strong></td></tr>
+    <tr class="total"><td>Engineer reach (1 PR)</td><td class="num"><strong>0.91</strong></td></tr>
+  </table>
+
+  <p><strong>Ben</strong> ships <em>five</em> small, low-traffic PRs elsewhere in the codebase that
+  nobody else happens to touch that quarter:</p>
+  <table>
+    <tr><td>PR reach (each of 5 PRs)</td><td class="num">0.00 (no co-touching engineers)</td></tr>
+    <tr class="total"><td>Engineer reach (5 PRs)</td><td class="num"><strong>0.00</strong></td></tr>
+  </table>
+
+  <p>Alice ends up ranked above Ben on this component despite merging one-fifth as many PRs —
+  because her single PR sat in genuinely shared, consequential territory, and averaging (rather
+  than summing) means Ben's extra volume in low-traffic code doesn't out-accumulate that. This is
+  the exact case an earlier, buggy version of this metric got backwards: it summed rather than
+  averaged, so Ben's volume alone would have won.</p>
+
+  <h2>What's excluded going in</h2>
+  <ul>
+    <li><strong>Mechanical PRs</strong> (lockfile-only diffs, dependency bumps) don't contribute a
+    file-touch record to the shared map at all — otherwise a lockfile, which nearly every PR in a
+    monorepo touches at merge time in some workflows, would look like the most "consequential" file
+    in the repo for reasons that have nothing to do with engineering judgment.</li>
+    <li><strong>Bot-authored PRs</strong> are excluded the same way, for the same reason.</li>
+  </ul>
+
+  <footer class="bottom">
+    <a href="./">← All methodology pages</a> · <a href="../">Back to the dashboard</a>
+  </footer>
+</div>
+</body>
+</html>

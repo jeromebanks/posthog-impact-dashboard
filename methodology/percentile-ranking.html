@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Percentile Ranking — Methodology</title>
+<link rel="stylesheet" href="methodology.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="./">← Methodology</a> / Percentile Ranking</p>
+  <div class="eyebrow" style="color:var(--text-muted)">Cross-cutting, applies to all three components</div>
+  <h1>Why percentile ranks, not raw scores</h1>
+  <p class="subtitle lede">Each component (Shipped Scope, Leverage, Domain Stewardship) produces a
+  raw number first — a co-touch weight, a review count, a credit total. Before it's combined into
+  the Impact Score, that raw number is converted to a 0–100 percentile rank. This page explains why.</p>
+
+  <h2>The problem with the raw numbers directly</h2>
+  <p>The three raw values live on completely different, incompatible scales — a Leverage raw score
+  might be "22," a Shipped Scope raw score might be "0.9," and a Stewardship raw score might be "3."
+  There's no honest way to average those together with fixed weights (45% / 35% / 20%) without first
+  putting them on the same footing.</p>
+
+  <h2>Why not min-max scaling</h2>
+  <p>The obvious fix — rescale each component so the lowest value maps to 0 and the highest maps to
+  100 — breaks badly in a dataset this size, because a single extreme outlier compresses everyone
+  else into a narrow band near the bottom:</p>
+  <table>
+    <tr><th>Raw values</th><th>Min-max scaled</th></tr>
+    <tr><td><code>1, 2, 3, 4, 40</code></td><td><code>0, 2.6, 5.1, 7.7, 100</code></td></tr>
+  </table>
+  <p>Four engineers who differ meaningfully from each other (1 vs. 4 is a 4x difference) all get
+  flattened into single-digit scores because one person happens to be an extreme outlier. In a
+  90-day window across 200+ engineers on a very active repo, an extreme outlier is close to
+  guaranteed — min-max would make the scores misleading by construction.</p>
+
+  <h2>What percentile ranking does instead</h2>
+  <pre><code>percentile_rank(value) = (average rank position among all engineers, 0-indexed)
+                          / (total engineers - 1) × 100</code></pre>
+  <p>Every engineer's percentile depends only on how many people they outrank, not on the absolute
+  gap between values. The same raw values from above, percentile-ranked instead:</p>
+  <table>
+    <tr><th>Raw values</th><th>Percentile ranks</th></tr>
+    <tr><td><code>1, 2, 3, 4, 40</code></td><td><code>0, 25, 50, 75, 100</code></td></tr>
+  </table>
+  <p>The five engineers are now evenly spread out, which is the honest picture: relative to their
+  peer group, each one is meaningfully ahead of the last, regardless of how far out in front the
+  single outlier happens to be. Ties are handled by averaging the tied ranks, so two engineers with
+  identical raw values always get identical percentiles.</p>
+
+  <h2>Why a raw value of exactly zero always shows as zero</h2>
+  <p>Percentile rank on its own has one sharp edge: since it only measures relative position, even
+  someone with <em>zero</em> substantive reviews given will land above rank 0 if anyone in the
+  dataset has a negative or otherwise-lower value — or in practice here, will simply land at
+  whatever percentile corresponds to "tied for last," which is not automatically 0 when many
+  engineers share that same zero value. Left alone, that can show someone with literally no
+  qualifying activity in a component at a nonzero-looking percentile, which reads as partial credit
+  for something that didn't happen. The ranking function special-cases this: any engineer whose raw
+  value is exactly zero is pinned to a 0 percentile in that component, full stop, regardless of how
+  many other engineers also happen to be at zero.</p>
+
+  <div class="callout good">
+    <strong>Net effect:</strong> a component score of 0 always means "no qualifying activity," a
+    score of 100 always means "highest in the dataset," and everything in between reflects standing
+    relative to peers rather than a raw magnitude that different components can't otherwise be
+    compared on.
+  </div>
+
+  <footer class="bottom">
+    <a href="./">← All methodology pages</a> · <a href="../">Back to the dashboard</a>
+  </footer>
+</div>
+</body>
+</html>

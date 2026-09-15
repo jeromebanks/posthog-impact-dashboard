@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Methodology — PostHog Engineering Impact</title>
+<link rel="stylesheet" href="methodology.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="../">← PostHog Engineering Impact</a></p>
+  <div class="eyebrow" style="color:var(--text-muted)">Methodology</div>
+  <h1>How the Impact Score is built</h1>
+  <p class="subtitle lede">
+    The one-line summary on the dashboard is accurate but compressed. This section unpacks each
+    piece — what it counts, why it's shaped the way it is, and a small worked example for each,
+    so a number on a card is never something you have to just trust.
+  </p>
+
+  <div class="callout">
+    <strong>The starting premise.</strong> GitHub activity cannot show total employee impact —
+    it can't see roadmap judgment, cross-team negotiation, incident response outside a PR, or
+    mentorship that never produced a commit. What it <em>can</em> show, reliably, is three things:
+    how structurally consequential someone's shipped code is, how much they've helped teammates
+    ship, and whether a team routes a given area of the codebase to them. That's what's scored here
+    — nothing more is claimed.
+  </div>
+
+  <h2>The three components</h2>
+  <p>Every merged PR in the trailing 90 days feeds into three independently-computed signals.
+  Each is turned into a percentile rank (0–100) across all engineers before being weighted and
+  summed into the single Impact Score shown on each card.</p>
+
+  <div class="card-nav">
+    <a href="shipped-scope.html">
+      <span class="chip"><span class="dot" style="background:var(--series-1)"></span>45% weight</span>
+      <div class="nav-title">Shipped Scope</div>
+      <div class="nav-desc">How structurally consequential is this person's typical merged PR — measured by how many other engineers also depend on the files it touches.</div>
+    </a>
+    <a href="leverage.html">
+      <span class="chip"><span class="dot" style="background:var(--series-2)"></span>35% weight</span>
+      <div class="nav-title">Leverage on Others</div>
+      <div class="nav-desc">How much has this person helped teammates ship, via substantive code review — not rubber-stamp approvals.</div>
+    </a>
+    <a href="stewardship.html">
+      <span class="chip"><span class="dot" style="background:var(--series-3)"></span>20% weight</span>
+      <div class="nav-title">Domain Stewardship</div>
+      <div class="nav-desc">Which subsystems does this person's activity concentrate in strongly enough to be one of the top two people active there.</div>
+    </a>
+    <a href="percentile-ranking.html">
+      <span class="chip">cross-cutting</span>
+      <div class="nav-title">Why percentile ranks, not raw scores</div>
+      <div class="nav-desc">How the 0–100 conversion works, why it isn't min-max scaling, and why a true zero always displays as zero.</div>
+    </a>
+  </div>
+
+  <h2>What's filtered out before any of this runs</h2>
+  <table>
+    <tr><th>Excluded</th><th>Why</th></tr>
+    <tr>
+      <td>Bot &amp; automated-tool activity</td>
+      <td>Any account typed as a GitHub <code>Bot</code>, plus a login-pattern backstop for tools that
+      don't carry that type (CodeRabbit, Greptile, Dependabot, Renovate, and PostHog's own internal
+      review bot, <code>stamphog</code>) — these can review or open PRs at a volume that would drown
+      out human signal if left in.</td>
+    </tr>
+    <tr>
+      <td>Mechanical PRs</td>
+      <td>Dependency-bump titles and lockfile-only diffs are excluded from all three scored
+      components — they don't reflect engineering judgment, and would inflate Shipped Scope in
+      particular, since lockfiles are touched by almost everyone.</td>
+    </tr>
+    <tr>
+      <td>Rubber-stamp reviews</td>
+      <td>A review only counts toward Leverage or Stewardship if its state is an actual verdict
+      (approve or request-changes) <em>and</em> it carries a non-trivial comment — a bare "LGTM"
+      doesn't count as help given.</td>
+    </tr>
+  </table>
+
+  <h2>What's deliberately <em>not</em> scored</h2>
+  <p>Merged PR count, number of distinct collaborators, and median time-to-merge are shown on
+  every card for context, but none of them feed the score. An earlier version of this dashboard
+  did let PR volume leak into the scoring indirectly (see each component page for the specific
+  bug and fix) — the current formulas are built to survive the question "does the person who
+  merges the most just win?" with a genuine no.</p>
+
+  <h2>Everything is deterministic</h2>
+  <p>The ranking itself is plain Python arithmetic over the fetched GitHub data — no model makes
+  a judgment call about who's more "impactful." The only place AI-generated text appears is the
+  short "why" sentence on each top-5 card, written <em>after</em> the ranking is already fixed, and
+  only to summarize evidence that's independently linked and checkable.</p>
+
+  <footer class="bottom">
+    <a href="../">← Back to the dashboard</a> · Source: PostHog/posthog, trailing 90 days
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Domain Stewardship — Methodology</title>
+<link rel="stylesheet" href="methodology.css" />
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="./">← Methodology</a> / Domain Stewardship</p>
+  <div class="eyebrow" style="color:var(--series-3)">20% of the Impact Score</div>
+  <h1>Domain Stewardship</h1>
+  <p class="subtitle lede">Which parts of the codebase does this person's activity concentrate in
+  strongly enough that they're one of the one or two most active people there right now.</p>
+
+  <h2>The intuition</h2>
+  <p>Some engineers are broad generalists; others become the person a team leans on for a specific
+  area — auth, billing, the experimentation engine, whatever it is. Neither is better, but "who
+  would you go ask about X" is a real, distinct kind of impact from either shipping code or
+  reviewing it, and it's visible in the data as <em>concentration</em> of activity within a scope.</p>
+
+  <div class="callout warn">
+    <strong>A naming correction.</strong> This component was originally called "Ownership / Trust
+    Routing," which overclaimed what the underlying data shows. Authored-plus-reviewed activity in
+    a scope is evidence that someone is <em>currently active and concentrated</em> there — it is not
+    evidence that a team lead or process actively routed work to them, which would require data this
+    dashboard doesn't have (assignment history, on-call rosters, team charters). "Domain Stewardship"
+    describes what's actually measurable: activity concentration, not routing.
+  </div>
+
+  <h2>How a PR's scope is determined</h2>
+  <p>PostHog's PR titles mostly follow a conventional-commit style — <code>feat(scope): …</code>,
+  <code>fix(scope): …</code> — so the scope is parsed directly out of the title when present:</p>
+  <pre><code>feat(billing): add proration for mid-cycle plan changes
+      ^^^^^^^
+      scope = "billing"</code></pre>
+  <p>When a title has no scope prefix, the dominant top-level directory among the PR's changed
+  files is used instead (e.g. most files under <code>frontend/scenes/experiments/</code> →
+  scope <code>frontend</code>). This fallback fires on a small minority of PRs — the current rate
+  is shown in the dashboard's freshness line — and is disclosed rather than silently treated as
+  clean signal.</p>
+
+  <h2>The formula</h2>
+  <pre><code>for each scope (e.g. "billing", "flags", "ai-research"):
+    rank engineers by (PRs authored in this scope) + (substantive reviews given in this scope)
+    #1 in that ranking earns  +2 stewardship credit
+    #2 in that ranking earns  +1 stewardship credit
+    everyone else earns 0 for this scope
+
+Engineer's raw stewardship = sum of credits across every scope they appear in
+
+Domain Stewardship = percentile_rank(raw stewardship) across all engineers</code></pre>
+
+  <h3>Why top-2-per-scope, not a continuous share</h3>
+  <p>A continuous measure (e.g. "what % of this scope's total activity is yours") would reward
+  someone who does a little bit of everything roughly as much as someone who's clearly the
+  go-to person for one specific area. Restricting credit to the top two per scope makes the signal
+  binary and legible: either you're one of the one or two people most active in an area right now,
+  or you aren't. It also means a single prolific generalist can't quietly accumulate credit across
+  every scope just by touching all of them lightly — they have to actually be top-2 in each one.</p>
+
+  <h2>Worked example</h2>
+  <p>Two toy scopes, four engineers:</p>
+  <table>
+    <tr><th>Scope</th><th>Engineer</th><th class="num">Authored + reviewed</th><th class="num">Credit</th></tr>
+    <tr><td rowspan="3"><code>billing</code></td><td>dana</td><td class="num">14</td><td class="num">+2</td></tr>
+    <tr><td>eli</td><td class="num">9</td><td class="num">+1</td></tr>
+    <tr><td>fay</td><td class="num">3</td><td class="num">0</td></tr>
+    <tr><td rowspan="2"><code>flags</code></td><td>dana</td><td class="num">2</td><td class="num">0</td></tr>
+    <tr><td>eli</td><td class="num">11</td><td class="num">+2</td></tr>
+  </table>
+  <table>
+    <tr><th>Engineer</th><th class="num">Total raw stewardship</th></tr>
+    <tr><td>dana</td><td class="num">2 (billing only)</td></tr>
+    <tr><td>eli</td><td class="num">1 + 2 = 3 (top-2 in billing, top-1 in flags)</td></tr>
+    <tr><td>fay</td><td class="num">0</td></tr>
+  </table>
+  <p>Eli ranks highest here — not because of raw volume, but because he's a top performer in two
+  different scopes rather than the single top performer in just one.</p>
+
+  <h2>What's excluded going in</h2>
+  <p>Mechanical PRs don't count toward any scope's activity, for the same reason they're excluded
+  from Shipped Scope — a wave of dependency-bump PRs in a scope shouldn't manufacture stewardship
+  credit for whoever happened to merge them.</p>
+
+  <footer class="bottom">
+    <a href="./">← All methodology pages</a> · <a href="../">Back to the dashboard</a>
+  </footer>
+</div>
+</body>
+</html>
