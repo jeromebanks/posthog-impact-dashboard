@@ -1,4 +1,6 @@
-data/fetch.log
+data/fetch*.log
+data/*.bak
 screenshot-*.png
 __pycache__/
 methodology/_preview*.png
+_preview*.png

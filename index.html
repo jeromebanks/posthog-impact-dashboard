@@ -17,7 +17,7 @@
     --border:         rgba(11,11,11,0.10);
     --series-1:       #2a78d6; /* Shipped Scope */
     --series-2:       #eb6834; /* Leverage on Others */
-    --series-3:       #1baf7a; /* Ownership / Trust */
+    --series-3:       #1baf7a; /* Domain Stewardship */
     --card-bg:        #ffffff;
   }
   @media (prefers-color-scheme: dark) {
@@ -104,19 +104,33 @@
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 10px;
+    overflow: hidden;
+  }
+  .card-toggle {
+    appearance: none;
+    border: 0;
+    width: 100%;
     padding: 10px 16px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     display: grid;
     grid-template-columns: 34px 170px minmax(220px, 1fr) 300px;
     gap: 16px;
     align-items: center;
   }
+  .card-toggle:hover { background: color-mix(in srgb, var(--gridline) 35%, transparent); }
+  .card-toggle:focus-visible { outline: 2px solid var(--series-1); outline-offset: -2px; }
   .rank {
     font-size: 18px;
     font-weight: 700;
     color: var(--text-muted);
   }
   .who { min-width: 0; }
-  .login { font-weight: 600; font-size: 14.5px; }
+  .login { font-weight: 600; font-size: 14.5px; color: var(--text-primary); text-decoration: none; }
+  .login:hover { text-decoration: underline; }
   .conf { color: var(--text-muted); font-size: 11.5px; margin-top: 1px; }
   .why { min-width: 0; }
   .why-text { font-size: 12.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px; }
@@ -130,6 +144,17 @@
     padding: 1px 6px;
   }
   .prs a:hover { text-decoration: underline; }
+  .card-expanded { display: none; border-top: 1px solid var(--gridline); padding: 12px 16px 14px 220px; }
+  .card.expanded .card-expanded { display: block; }
+  .evidence-title { margin: 0 0 8px; font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+  .evidence-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+  .evidence-list a { color: var(--text-primary); text-decoration: none; font-size: 12.5px; }
+  .evidence-list a:hover { text-decoration: underline; }
+  .evidence-kind { display: inline-block; min-width: 102px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+
+  .metric-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+  .metric-controls button { border: 1px solid var(--border); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); padding: 5px 11px; cursor: pointer; font: inherit; font-size: 12px; }
+  .metric-controls button[aria-pressed="true"] { background: var(--text-primary); color: var(--page); }
 
   .bars { display: flex; flex-direction: column; gap: 6px; }
   .bar-row { display: flex; align-items: center; gap: 8px; }
@@ -197,6 +222,11 @@
     text-align: center;
     color: var(--text-muted);
   }
+  @media (max-width: 850px) {
+    .card-toggle { grid-template-columns: 30px 1fr; }
+    .why, .bars { grid-column: 2; }
+    .card-expanded { padding-left: 60px; }
+  }
 </style>
 </head>
 <body>
@@ -210,7 +240,14 @@
   <div class="legend">
     <span><span class="dot" style="background:var(--series-1)"></span>Shipped Scope (45%)</span>
     <span><span class="dot" style="background:var(--series-2)"></span>Leverage on Others (35%)</span>
-    <span><span class="dot" style="background:var(--series-3)"></span>Ownership / Trust (20%)</span>
+    <span><span class="dot" style="background:var(--series-3)"></span>Domain Stewardship (20%)</span>
+  </div>
+
+  <div class="metric-controls" aria-label="Rank engineers by component">
+    <button type="button" data-metric="overall" aria-pressed="true">Overall</button>
+    <button type="button" data-metric="shipped">Shipped</button>
+    <button type="button" data-metric="review">Review</button>
+    <button type="button" data-metric="stewardship">Stewardship</button>
   </div>
 
   <div class="cards" id="cards">
@@ -222,6 +259,10 @@
   <details class="methodology">
     <summary>How this works</summary>
     <div class="method-body" id="method-body"></div>
+    <p style="margin-top:12px;font-size:12px;color:var(--text-secondary)">
+      Full formulas and worked examples: <a href="methodology/" style="color:var(--series-1)">methodology</a>
+      · Deferred features and why: <a href="roadmap.html" style="color:var(--series-1)">roadmap</a>
+    </p>
   </details>
 
   <footer class="bottom" id="footer"></footer>
@@ -242,31 +283,54 @@ async function main() {
 
 function pct(v) { return Math.max(2, Math.round(v)); }
 
-function cardHTML(r, whyOverride) {
-  const top5 = r.evidence.top_shipped.concat(r.evidence.best_review ? [r.evidence.best_review] : []);
-  const prLinks = top5.slice(0, 3).map(p =>
-    `<a href="${p.url}" target="_blank" rel="noopener">#${p.number}</a>`
+let currentData;
+let activeMetric = 'overall';
+const metricConfig = {
+  overall: { label: 'Impact Score', value: r => r.impact_score },
+  shipped: { label: 'Shipped', value: r => r.components.shipped_scope },
+  review: { label: 'Review', value: r => r.components.leverage_on_others },
+  stewardship: { label: 'Stewardship', value: r => r.components.domain_stewardship },
+};
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function cardHTML(r, displayRank, whyOverride) {
+  const evidence = [
+    ...r.evidence.top_shipped.map(p => ({...p, kind: 'shipped evidence'})),
+    ...(r.evidence.best_review ? [{...r.evidence.best_review, kind: 'review evidence'}] : []),
+  ];
+  const cardId = `card-details-${displayRank}`;
+  const evidenceLinks = evidence.map(p =>
+    `<li><span class="evidence-kind">${p.kind}</span><a href="${escapeHTML(p.url)}" target="_blank" rel="noopener">#${p.number} — ${escapeHTML(p.title)}</a></li>`
   ).join('');
   const whyText = whyOverride || defaultWhy(r);
   return `
-    <div class="card">
-      <div class="rank">#${r.rank}</div>
+    <article class="card">
+      <div class="card-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="${cardId}" onclick="toggleCard(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCard(this)}">
+      <div class="rank">#${displayRank}</div>
       <div class="who">
-        <div class="login">${r.login}</div>
+        <a class="login" href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escapeHTML(r.login)}</a>
         <div class="conf">${r.confidence.label} evidence — ${r.confidence.authored_prs} authored PR${r.confidence.authored_prs===1?'':'s'}, ${r.confidence.substantive_reviews} substantive review${r.confidence.substantive_reviews===1?'':'s'}</div>
         <div class="conf">${r.stats.merged_prs} merged PRs · ${r.stats.distinct_collaborators} collaborators${r.stats.median_hours_to_merge!=null ? ' · ' + Math.round(r.stats.median_hours_to_merge) + 'h median to merge' : ''}</div>
       </div>
       <div class="why">
-        <div class="why-text">${whyText}</div>
-        <div class="prs">${prLinks || '<span style="color:var(--text-muted);font-size:11.5px">no linked PR evidence</span>'}</div>
+        <div class="why-text">${escapeHTML(whyText)}</div>
+        <div class="conf">Click to inspect supporting PR titles</div>
       </div>
       <div class="bars">
         ${barRow('Impact Score', r.impact_score, null, true)}
         ${barRow('Shipped', r.components.shipped_scope, 'var(--series-1)')}
         ${barRow('Leverage', r.components.leverage_on_others, 'var(--series-2)')}
-        ${barRow('Ownership', r.components.ownership_trust, 'var(--series-3)')}
+        ${barRow('Stewardship', r.components.domain_stewardship, 'var(--series-3)')}
       </div>
-    </div>`;
+      </div>
+      <div class="card-expanded" id="${cardId}">
+        <p class="evidence-title">Supporting evidence</p>
+        <ul class="evidence-list">${evidenceLinks || '<li>No linked PR evidence</li>'}</ul>
+      </div>
+    </article>`;
 }
 
 function barRow(label, value, color, isScore) {
@@ -275,42 +339,52 @@ function barRow(label, value, color, isScore) {
   return `<div class="${rowClass}">
     <span class="bar-label">${label}</span>
     <span class="bar-track"><span class="bar-fill" style="${fillStyle}"></span></span>
-    <span class="bar-val">${Math.round(value)}</span>
+    <span class="bar-val">${Number(value).toFixed(1)}</span>
   </div>`;
 }
 
 function defaultWhy(r) {
   const c = r.components;
-  const top = Object.entries({shipped: c.shipped_scope, leverage: c.leverage_on_others, ownership: c.ownership_trust})
+  const top = Object.entries({shipped: c.shipped_scope, leverage: c.leverage_on_others, stewardship: c.domain_stewardship})
     .sort((a,b) => b[1]-a[1])[0][0];
-  const label = { shipped: 'broad structural reach across shared code', leverage: 'high review leverage helping teammates ship', ownership: 'trusted owner across multiple subsystems' }[top];
-  return `Ranked #${r.rank} primarily on ${label}.`;
+  const label = { shipped: 'broad structural reach across shared code', leverage: 'high review leverage helping teammates ship', stewardship: 'sustained activity across multiple subsystems' }[top];
+  return `Ranks strongly on ${label}.`;
+}
+
+function toggleCard(button) {
+  const card = button.closest('.card');
+  const expanded = card.classList.toggle('expanded');
+  button.setAttribute('aria-expanded', String(expanded));
+}
+
+function renderRankings() {
+  const cfg = metricConfig[activeMetric];
+  const ranked = [...currentData.rankings].sort((a, b) => cfg.value(b) - cfg.value(a) || a.login.localeCompare(b.login));
+  const top10 = ranked.slice(0, 10);
+  document.getElementById('cards').innerHTML = top10.map((r, i) => cardHTML(r, i + 1, (currentData.why_overrides || {})[r.login])).join('');
+  document.getElementById('cutline').textContent = `Showing the top 10 by ${cfg.label.toLowerCase()}. Select another component to re-rank.`;
 }
 
 function render(data) {
+  currentData = data;
   document.getElementById('methodology-line').textContent = data.meta.methodology;
   document.getElementById('freshness').textContent =
     `${data.meta.total_prs.toLocaleString()} merged PRs from ${data.meta.eligible_engineers} engineers analyzed, ` +
     `${data.meta.window_start} to ${data.meta.window_end}. ` +
     `${data.meta.bot_authored_prs_excluded} bot-authored and ${data.meta.mechanical_prs_excluded} mechanical PRs excluded from scoring.`;
 
-  const top5 = data.rankings.slice(0, 5);
-  const next5 = data.rankings.slice(5, 10);
-  document.getElementById('cards').innerHTML = top5.map(r => cardHTML(r, (data.why_overrides || {})[r.login])).join('');
-  document.getElementById('cutline').textContent = next5.length
-    ? `Ranks 6–10: ${next5.map(r => r.login).join(', ')}`
-    : '';
+  renderRankings();
 
   document.getElementById('method-body').innerHTML = `
     <div>
       <h4>Shipped Scope / Blast Radius — 45%</h4>
-      <p>Co-touch centrality: for every merged PR, we count how many <em>other</em> engineers also touched the same files elsewhere in the 90-day window, and average a damped weight across the PR's files. We then take the <strong>mean of this across each engineer's own PRs</strong> — deliberately an average, not a sum, so this component reflects the typical consequence of a person's work rather than being won by whoever merged the most PRs. This rewards changes that intersect code many people depend on over changes that merely span many folders. It is a proxy for engineering blast radius, not a claim about customer or revenue impact — GitHub data can't show that. Mechanical PRs (lockfile-only diffs, dependency bumps, bulk codemods) are excluded from this and all scored components, but still counted in the PR-count stat shown per card.</p>
+      <p>Co-touch centrality: for every merged PR, we count how many <em>other</em> engineers also touched the same files elsewhere in the 90-day window, take the <strong>mean damped weight across that PR's files</strong>, then take the <strong>mean across each engineer's PRs</strong>. Both levels are averages, so a PR does not score higher merely because it contains more files, and the component is not won by whoever merged the most PRs. It is a proxy for engineering blast radius, not a claim about customer or revenue impact. Mechanical PRs (lockfile-only diffs and dependency bumps) are excluded from scored components.</p>
       <h4>Leverage on Others — 35%</h4>
-      <p>Substantive reviews given to other engineers' PRs (state APPROVED/CHANGES_REQUESTED with a non-trivial comment body — rubber-stamp approvals don't count), weighted by how many distinct teammates were reviewed, with a smaller bonus for faster review turnaround. Reviews from automated tools (CodeRabbit, Greptile, Dependabot, etc.) are excluded.</p>
+      <p>Substantive reviews given to other engineers' PRs (state APPROVED/CHANGES_REQUESTED with a non-trivial comment body — rubber-stamp approvals don't count), multiplied by <code>log1p</code> of the number of distinct teammates reviewed. There is no speed modifier because GitHub does not provide a reliable request-to-first-review interval for resolved requests. Review connections are fully paginated; GitHub Apps and automated tools are excluded by actor type and known-account markers.</p>
     </div>
     <div>
-      <h4>Ownership / Trust Routing — 20%</h4>
-      <p>PR titles are parsed for their conventional-commit scope (e.g. <code>feat(scope): …</code>); when a title has no scope (${data.meta.scope_fallback_pct}% of PRs), we fall back to the dominant top-level directory of the changed files. Within each scope, the top-2 most active engineers (by authored + reviewed activity) earn ownership credit — this identifies who a team actually routes work to for a given subsystem.</p>
+      <h4>Domain Stewardship — 20%</h4>
+      <p>PR titles are parsed for their conventional-commit scope (e.g. <code>feat(scope): …</code>); when a title has no scope (${data.meta.scope_fallback_pct}% of PRs), we fall back to the dominant top-level directory of the changed files. Within each scope, the top-2 most active engineers by authored + substantive reviewed activity earn stewardship credit. This shows sustained activity around an area; it does not claim work was actively routed to that person.</p>
       <h4>Evidence confidence &amp; ranking</h4>
       <p>Every engineer with at least one qualifying contribution is ranked — there is no minimum-activity cutoff, so someone who shipped one large piece of infrastructure and spent the rest of the window reviewing can still surface. The confidence label shows how much evidence backs the number; it affects how a score should be <em>read</em>, never the ranking itself. All three components are percentile-ranked (not min-max normalized) across the eligible engineer set so a single volume outlier can't compress everyone else's score.</p>
     </div>`;
@@ -318,6 +392,14 @@ function render(data) {
   document.getElementById('footer').textContent =
     `Source: PostHog/posthog · Generated ${new Date(data.meta.generated_at || Date.now()).toISOString().slice(0,16).replace('T',' ')} UTC · Ranking is fully deterministic (Python); no LLM in the scoring path.`;
 }
+
+document.querySelectorAll('.metric-controls button').forEach(button => {
+  button.addEventListener('click', () => {
+    activeMetric = button.dataset.metric;
+    document.querySelectorAll('.metric-controls button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+    renderRankings();
+  });
+});
 
 main();
 </script>

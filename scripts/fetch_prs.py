@@ -2,9 +2,9 @@
 """
 Fetch all merged PRs for PostHog/posthog in the last 90 days via GraphQL,
 sliced by single calendar day to stay safely under GitHub search's
-1000-result-per-query cap. Per-PR nesting is capped (files: 20, reviews: 10)
-to stay within the GraphQL cost budget across ~15k PRs -- disclosed in the
-methodology rather than silently truncating the date range itself.
+1000-result-per-query cap. The initial query fetches 100 files and 10 reviews
+per PR, then cursor-paginates every truncated nested connection. This keeps
+individual query cost predictable without silently dropping evidence.
 """
 import json
 import subprocess
@@ -19,12 +19,13 @@ OUT_PATH = "data/raw_prs.json"
 
 QUERY = """
 query($cursor: String) {
-  rateLimit { remaining resetAt }
+  rateLimit { cost remaining resetAt }
   search(query: "repo:%s is:pr is:merged merged:%s..%s", type: ISSUE, first: 50, after: $cursor) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
+        id
         number
         title
         url
@@ -32,8 +33,16 @@ query($cursor: String) {
         createdAt
         changedFiles
         author { login __typename }
-        files(first: 20) { nodes { path } }
-        reviews(first: 10) { nodes { author { login } state body submittedAt } }
+        files(first: 100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { path }
+        }
+        reviews(first: 10) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { author { login __typename } state body submittedAt }
+        }
         labels(first: 5) { nodes { name } }
       }
     }
@@ -53,6 +62,46 @@ def gh_graphql(query_text, cursor=None, retries=5):
         sys.stderr.write(f"  retry {attempt+1}: {result.stderr[:300]}\n")
         time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"gh api graphql failed after {retries} retries")
+
+
+def paginate_nested(prs, field, node_selection, page_size, batch_size=40):
+    """Complete a nested PR connection in cost-bounded alias batches."""
+    pending = [
+        (pr, pr[field]["pageInfo"]["endCursor"])
+        for pr in prs
+        if pr[field]["pageInfo"]["hasNextPage"]
+    ]
+    pages = 0
+    while pending:
+        batch, pending = pending[:batch_size], pending[batch_size:]
+        aliases = []
+        for i, (pr, cursor) in enumerate(batch):
+            aliases.append(
+                f'r{i}: node(id: {json.dumps(pr["id"])}) {{ '
+                f'... on PullRequest {{ {field}(first: {page_size}, after: {json.dumps(cursor)}) {{ '
+                f'totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {node_selection} }} '
+                f'}} }} }}'
+            )
+        query = "query { rateLimit { cost remaining resetAt } " + " ".join(aliases) + " }"
+        data = gh_graphql(query)["data"]
+        remaining = data["rateLimit"]["remaining"]
+        for i, (pr, _) in enumerate(batch):
+            page = data[f"r{i}"][field]
+            pr[field]["nodes"].extend(page["nodes"])
+            pr[field]["totalCount"] = page["totalCount"]
+            pr[field]["pageInfo"] = page["pageInfo"]
+            pages += 1
+            if page["pageInfo"]["hasNextPage"]:
+                pending.append((pr, page["pageInfo"]["endCursor"]))
+        print(
+            f"  completed {field}: pages={pages} pending={len(pending)} "
+            f"rate_remaining={remaining}",
+            flush=True,
+        )
+        if remaining < 200:
+            sys.stderr.write(f"  rate limit low ({remaining}), pausing 60s\n")
+            time.sleep(60)
+    return pages
 
 
 def fetch_day(day_str):
@@ -94,6 +143,28 @@ def main():
               f"running_total={len(all_prs)} rate_remaining={remaining}", flush=True)
         day = day + timedelta(days=1)
 
+    all_prs_list = list(all_prs.values())
+    review_pages = paginate_nested(
+        all_prs_list,
+        "reviews",
+        "author { login __typename } state body submittedAt",
+        100,
+    )
+    file_pages = paginate_nested(all_prs_list, "files", "path", 100)
+
+    incomplete_reviews = sum(
+        len(pr["reviews"]["nodes"]) != pr["reviews"]["totalCount"]
+        for pr in all_prs_list
+    )
+    incomplete_files = sum(
+        len(pr["files"]["nodes"]) != pr["files"]["totalCount"]
+        for pr in all_prs_list
+    )
+    if incomplete_reviews or incomplete_files:
+        raise RuntimeError(
+            f"nested pagination incomplete: reviews={incomplete_reviews}, files={incomplete_files}"
+        )
+
     with open(OUT_PATH, "w") as f:
         json.dump({
             "meta": {
@@ -102,9 +173,15 @@ def main():
                 "window_end": END.isoformat(),
                 "total_prs": len(all_prs),
                 "per_day_mismatches": mismatches,
-                "caps": {"files_per_pr": 20, "reviews_per_pr": 10},
+                "initial_page_sizes": {"files_per_pr": 100, "reviews_per_pr": 10},
+                "nested_pagination": {
+                    "review_pages_fetched": review_pages,
+                    "file_pages_fetched": file_pages,
+                    "incomplete_review_connections": incomplete_reviews,
+                    "incomplete_file_connections": incomplete_files,
+                },
             },
-            "prs": list(all_prs.values()),
+            "prs": all_prs_list,
         }, f)
 
     print(f"\nDone. {len(all_prs)} unique merged PRs written to {OUT_PATH}")

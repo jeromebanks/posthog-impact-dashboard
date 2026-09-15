@@ -2,7 +2,7 @@
 """
 Deterministic scoring: no LLM anywhere in this file. Reads data/raw_prs.json,
 computes the three weighted components (Shipped Scope 45%, Leverage on Others 35%,
-Ownership/Trust Routing 20%), rank-normalizes each, and writes data/scores.json.
+Domain Stewardship 20%), rank-normalizes each, and writes data/scores.json.
 """
 import json
 import math
@@ -11,10 +11,14 @@ from collections import Counter, defaultdict
 
 IN_PATH = "data/raw_prs.json"
 OUT_PATH = "data/scores.json"
+WHY_OVERRIDES_PATH = "data/why_overrides.json"
+REVIEW_COMPLETIONS_PATH = "data/review_completions.json"
 
 BOT_MARKERS = [
     "[bot]", "dependabot", "renovate", "coderabbitai", "greptile",
     "sourcery", "copilot", "codecov", "snyk", "semgrep", "github-actions",
+    "stamphog", "graphite-app", "posthog-security-review-bot",
+    "exe-dev-github-integration",
 ]
 LOCKFILES = {
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
@@ -26,7 +30,7 @@ SCOPE_RE = re.compile(r"^[a-zA-Z]+\(([^)]+)\):")
 def is_bot(login, typename):
     if typename == "Bot":
         return True
-    l = login.lower()
+    l = (login or "").lower()
     if l.endswith("bot"):
         return True
     return any(m in l for m in BOT_MARKERS)
@@ -58,7 +62,7 @@ def rank_normalize(values):
     if n == 0:
         return {}
     if n == 1:
-        return {items[0][0]: 100.0}
+        return {items[0][0]: 0.0 if items[0][1] == 0 else 100.0}
     result = {}
     i = 0
     while i < n:
@@ -66,7 +70,7 @@ def rank_normalize(values):
         while j + 1 < n and items[j + 1][1] == items[i][1]:
             j += 1
         avg_rank = (i + j) / 2
-        pct = avg_rank / (n - 1) * 100
+        pct = 0.0 if items[i][1] == 0 else avg_rank / (n - 1) * 100
         for k in range(i, j + 1):
             result[items[k][0]] = pct
         i = j + 1
@@ -78,6 +82,13 @@ def main():
         raw = json.load(f)
     prs = raw["prs"]
     meta = raw["meta"]
+    try:
+        with open(REVIEW_COMPLETIONS_PATH) as f:
+            review_completions_doc = json.load(f)
+            review_completions = review_completions_doc["reviews"]
+    except FileNotFoundError:
+        review_completions_doc = {"meta": {}}
+        review_completions = {}
 
     file_to_authors = defaultdict(set)      # file -> set(login)  [non-bot, non-mechanical]
     pr_records = []                          # cleaned eligible PRs
@@ -101,20 +112,31 @@ def main():
         if fell_back:
             scope_fallback_count += 1
         reviews = []
-        for r in pr["reviews"]["nodes"]:
-            r_author = r.get("author")
-            if r_author is None:
-                continue
-            r_login = r_author["login"]
-            if is_bot(r_login, "User"):
+        completed_reviews = review_completions.get(str(pr["number"]))
+        review_nodes = completed_reviews if completed_reviews is not None else pr["reviews"]["nodes"]
+        for r in review_nodes:
+            if completed_reviews is not None:
+                r_login = r.get("login")
+                r_typename = r.get("typename")
+                body_len = r.get("body_len", 0)
+                submitted_at = r.get("submitted_at")
+            else:
+                r_author = r.get("author")
+                if r_author is None:
+                    continue
+                r_login = r_author["login"]
+                r_typename = r_author.get("__typename")
+                body_len = len((r.get("body") or "").strip())
+                submitted_at = r["submittedAt"]
+            if r_login is None or is_bot(r_login, r_typename):
                 continue
             if r_login == login:
                 continue
             reviews.append({
                 "login": r_login,
                 "state": r["state"],
-                "body_len": len((r.get("body") or "").strip()),
-                "submitted_at": r["submittedAt"],
+                "body_len": body_len,
+                "submitted_at": submitted_at,
             })
         rec = {
             "number": pr["number"],
@@ -135,7 +157,8 @@ def main():
                 file_to_authors[fpath].add(login)
 
     # ---- Component 1: Shipped Scope / Blast Radius (45%) ----
-    # Mean (not sum) co-touch weight per PR: a per-PR *rate* of structural
+    # Mean co-touch weight within each PR, then mean across an engineer's PRs:
+    # a per-PR *rate* of structural
     # consequence, so this can't be won by sheer PR volume. An earlier version
     # summed contributions across all of a person's PRs, which -- despite using
     # co-touch centrality instead of a naive directory/PR count -- still made
@@ -152,10 +175,11 @@ def main():
         if pr["mechanical"]:
             pr_cotouch[pr["number"]] = 0.0
             continue
-        contribution = 0.0
+        file_weights = []
         for fpath in pr["files"]:
             others = len(file_to_authors[fpath] - {pr["author"]})
-            contribution += math.sqrt(others)
+            file_weights.append(math.sqrt(others))
+        contribution = sum(file_weights) / len(file_weights) if file_weights else 0.0
         pr_cotouch[pr["number"]] = contribution
         shipped_sum[pr["author"]] += contribution
         shipped_count[pr["author"]] += 1
@@ -164,9 +188,7 @@ def main():
     # ---- Component 2: Leverage on Others (35%) ----
     leverage_count = defaultdict(int)
     leverage_distinct = defaultdict(set)
-    turnaround_hours = defaultdict(list)
     for pr in pr_records:
-        created = pr["createdAt"]
         for r in pr["reviews"]:
             if r["state"] not in ("APPROVED", "CHANGES_REQUESTED"):
                 continue
@@ -174,27 +196,12 @@ def main():
                 continue
             leverage_count[r["login"]] += 1
             leverage_distinct[r["login"]].add(pr["author"])
-            try:
-                from datetime import datetime
-                t0 = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(r["submitted_at"].replace("Z", "+00:00"))
-                hrs = max(0.0, (t1 - t0).total_seconds() / 3600.0)
-                turnaround_hours[r["login"]].append(hrs)
-            except Exception:
-                pass
 
     leverage_raw = {
         login: leverage_count[login] * math.log1p(len(leverage_distinct[login]))
         for login in leverage_count
     }
-    speed_raw = {}
-    for login, hrs_list in turnaround_hours.items():
-        if len(hrs_list) >= 2:
-            hrs_list.sort()
-            median = hrs_list[len(hrs_list) // 2]
-            speed_raw[login] = -median  # lower turnaround = better = higher rank
-
-    # ---- Component 3: Ownership / Trust Routing (20%) ----
+    # ---- Component 3: Domain Stewardship (20%) ----
     scope_activity = defaultdict(lambda: defaultdict(float))
     for pr in pr_records:
         if pr["mechanical"]:
@@ -205,26 +212,20 @@ def main():
                 continue
             scope_activity[pr["scope"]][r["login"]] += 1.0
 
-    ownership_raw = defaultdict(float)
+    stewardship_raw = defaultdict(float)
     for scope, engineers in scope_activity.items():
         ranked = sorted(engineers.items(), key=lambda kv: (-kv[1], kv[0]))
         if len(ranked) >= 1:
-            ownership_raw[ranked[0][0]] += 2.0
+            stewardship_raw[ranked[0][0]] += 2.0
         if len(ranked) >= 2:
-            ownership_raw[ranked[1][0]] += 1.0
+            stewardship_raw[ranked[1][0]] += 1.0
 
     # ---- Universe of engineers: anyone who authored or substantively reviewed ----
-    engineers = set(shipped_raw) | set(leverage_count) | set(ownership_raw)
+    engineers = set(shipped_raw) | set(leverage_count) | set(stewardship_raw)
 
     shipped_pct = rank_normalize({e: shipped_raw.get(e, 0.0) for e in engineers})
-    leverage_pct_raw = rank_normalize({e: leverage_raw.get(e, 0.0) for e in engineers})
-    speed_pct = rank_normalize({e: speed_raw.get(e, min(speed_raw.values()) if speed_raw else 0.0) for e in engineers})
-    ownership_pct = rank_normalize({e: ownership_raw.get(e, 0.0) for e in engineers})
-
-    leverage_pct = {
-        e: 0.8 * leverage_pct_raw.get(e, 0) + 0.2 * speed_pct.get(e, 0)
-        for e in engineers
-    }
+    leverage_pct = rank_normalize({e: leverage_raw.get(e, 0.0) for e in engineers})
+    stewardship_pct = rank_normalize({e: stewardship_raw.get(e, 0.0) for e in engineers})
 
     # ---- Displayed-only stats ----
     authored_prs = defaultdict(list)
@@ -249,7 +250,7 @@ def main():
 
     results = []
     for e in engineers:
-        score = 0.45 * shipped_pct.get(e, 0) + 0.35 * leverage_pct.get(e, 0) + 0.20 * ownership_pct.get(e, 0)
+        score = 0.45 * shipped_pct.get(e, 0) + 0.35 * leverage_pct.get(e, 0) + 0.20 * stewardship_pct.get(e, 0)
         n_authored = len(authored_prs.get(e, []))
         n_reviews = leverage_count.get(e, 0)
         qualifying = n_authored + n_reviews
@@ -284,7 +285,7 @@ def main():
             "components": {
                 "shipped_scope": round(shipped_pct.get(e, 0), 1),
                 "leverage_on_others": round(leverage_pct.get(e, 0), 1),
-                "ownership_trust": round(ownership_pct.get(e, 0), 1),
+                "domain_stewardship": round(stewardship_pct.get(e, 0), 1),
             },
             "confidence": {
                 "label": conf,
@@ -307,6 +308,12 @@ def main():
         r["rank"] = i + 1
 
     from datetime import datetime, timezone
+    try:
+        with open(WHY_OVERRIDES_PATH) as f:
+            why_overrides = json.load(f)
+    except FileNotFoundError:
+        why_overrides = {}
+
     out = {
         "meta": {
             **meta,
@@ -317,13 +324,15 @@ def main():
             "scope_fallback_fired_on": scope_fallback_count,
             "scope_fallback_pct": round(100 * scope_fallback_count / max(1, len(pr_records)), 1),
             "methodology": (
-                "Impact = shipped scope + leverage on teammates + subsystem trust. "
+                "Impact = shipped scope + leverage on teammates + domain stewardship. "
                 "GitHub cannot reveal total employee impact, so this dashboard ranks "
                 "observable engineering impact over the last 90 days. Activity volume "
                 "is shown for context but is not scored."
             ),
+            "review_completion": review_completions_doc.get("meta", {}),
         },
         "rankings": results,
+        "why_overrides": why_overrides,
     }
     with open(OUT_PATH, "w") as f:
         json.dump(out, f, indent=2)
@@ -337,7 +346,7 @@ def main():
         print(f"  #{r['rank']:>2} {r['login']:<25} score={r['impact_score']:<6} "
               f"shipped={r['components']['shipped_scope']:<5} "
               f"leverage={r['components']['leverage_on_others']:<5} "
-              f"ownership={r['components']['ownership_trust']:<5} "
+              f"stewardship={r['components']['domain_stewardship']:<5} "
               f"conf={r['confidence']['label']}")
 
 

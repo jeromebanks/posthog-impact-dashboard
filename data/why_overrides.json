@@ -1,0 +1,7 @@
+{
+  "fuziontech": "Reviewed exceptionally deeply for a small, consistent team (309 substantive reviews across 9 collaborators) while also shipping data-warehouse and Dagster pipeline fixes himself.",
+  "a-lider": "Drove access-control fixes across MCP tooling and UI polish, backed by strong review engagement across 36 teammates.",
+  "sampennington": "The most consistently active shipper in the window (265 merged PRs) while also holding top-2 stewardship credit across more subsystems than anyone else in the top five.",
+  "Twixes": "Highest structural reach in the top five — shipping core agent and session-infrastructure changes that many other engineers' code depends on.",
+  "pawel-cebula": "Shipped reliability fixes across usage-reporting and billing infrastructure, backed by strong review engagement across 39 teammates."
+}
