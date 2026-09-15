@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Roadmap — PostHog Engineering Impact</title>
+<link rel="stylesheet" href="methodology/methodology.css" />
+<style>
+  .status-row { display: flex; align-items: center; gap: 10px; margin: 22px 0 4px; }
+  .status-pill {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px;
+  }
+  .status-pill.next { background: color-mix(in srgb, var(--series-1) 18%, transparent); color: var(--series-1); }
+  .status-pill.later { background: color-mix(in srgb, var(--series-3) 18%, transparent); color: var(--series-3); }
+  .status-pill.no { background: color-mix(in srgb, var(--series-2) 18%, transparent); color: var(--series-2); }
+  .feature { margin-bottom: 30px; }
+  .feature h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="breadcrumb"><a href="./">← PostHog Engineering Impact</a></p>
+  <div class="eyebrow" style="color:var(--text-muted)">Roadmap</div>
+  <h1>What's next</h1>
+  <p class="subtitle lede">
+    The dashboard scores individuals over one fixed 90-day window because that was the right
+    scope for a time-boxed build. Two things came up while building it that a real engineering
+    leader would actually want next — both listed first, both genuinely bigger than a 90-minute
+    add-on. The rest is a shorter list of smaller, deferred ideas.
+  </p>
+
+  <h2>The two big ones</h2>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill next">Next</span></div>
+    <h3>Subsystem / module drill-down</h3>
+    <p>Right now Domain Stewardship is a single number folded into each engineer's score — it
+    doesn't say <em>which</em> subsystems, or who else is active there. A dedicated per-scope view
+    (<code>billing</code>, <code>flags</code>, <code>ai-research</code>, <code>plugin-server</code>, …)
+    would show, for one subsystem at a time:</p>
+    <ul>
+      <li>Everyone active there this window, ranked — not just the top-2 who earn scoring credit</li>
+      <li>Subsystem-level context: PR volume, review latency, bot-vs-human PR mix</li>
+      <li><strong>A bus-factor flag</strong> — subsystems where stewardship credit concentrates in a
+      single person are a single-point-of-failure risk, and that's arguably the single most
+      actionable thing a subsystem view could surface. It's a more useful question for a leader
+      than "who's #1 overall": "which parts of the codebase have exactly one person who really
+      knows them?"</li>
+    </ul>
+    <p>Mechanically cheap to add — the scope is already parsed and stored per PR
+    (<a href="methodology/stewardship.html">see the stewardship methodology</a>) — the work is
+    mainly a new aggregation pass and a second page template, not a new data pipeline.</p>
+  </div>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill next">Next</span></div>
+    <h3>Trends over time</h3>
+    <p>The current dashboard is one static snapshot of a single 90-day window. That can't
+    distinguish "consistently strong contributor" from "caught a temporary spike right before the
+    window closed" — and it gives no sense of whether the whole org's pace this quarter was normal
+    or unusual. A time-series view would add:</p>
+    <ul>
+      <li>Rolling per-engineer Impact Score over several trailing windows (e.g. weekly, each still
+      a 90-day lookback) — a trajectory, not a point estimate</li>
+      <li>Org-wide series: merged PR volume, review latency, bot-vs-human PR mix, week over week —
+      the context a single snapshot can't provide</li>
+      <li>Ramp-up tracking for newly active engineers — e.g. time to first substantive review
+      given, as an onboarding-health signal distinct from the impact score itself</li>
+    </ul>
+    <p>The scoring logic (<code>scripts/score.py</code>) is already parameterized by a date window,
+    so this is largely a re-run-at-multiple-windows problem rather than a redesign — the real cost
+    is the data footprint (multiple 90-day fetches instead of one) and the GraphQL rate-limit
+    budget that comes with it, which is why it didn't fit the original time box.</p>
+  </div>
+
+  <h2>Smaller deferred ideas</h2>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill later">Later</span></div>
+    <h3>Team rollups</h3>
+    <p>If GitHub Teams or a <code>CODEOWNERS</code>-style mapping were incorporated, scores could
+    roll up to team level, not just individual — useful for a leader who thinks in terms of teams
+    first and people second.</p>
+  </div>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill later">Later</span></div>
+    <h3>Cross-repo scope</h3>
+    <p>Currently scoped to <code>posthog/posthog</code> only. PostHog engineers also ship to
+    <code>posthog-js</code> and other repos in the org — a fuller picture would pull from all of
+    them, deduplicated by author across repos.</p>
+  </div>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill later">Later</span></div>
+    <h3>Tenure-aware normalization</h3>
+    <p>A two-month-old hire and a three-year veteran are being percentile-ranked against the same
+    pool right now. Normalizing by tenure (or at least segmenting new joiners into their own
+    comparison group for their first quarter) would make the score fairer without diluting the
+    "who's the best right now" read for everyone else.</p>
+  </div>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill later">Later</span></div>
+    <h3>Reliability signal</h3>
+    <p>PR titles containing "revert," or issues explicitly closed by a PR (GraphQL's
+    <code>closingIssuesReferences</code>, a field not currently fetched), could support a light
+    reliability/impact-on-users signal — shipped work that measurably fixed something reported,
+    versus work that had to be walked back. Deliberately not folded into the score without more
+    validation that it wouldn't just penalize people who ship more (and therefore revert more, in
+    absolute terms).</p>
+  </div>
+
+  <div class="feature">
+    <div class="status-row"><span class="status-pill later">Later</span></div>
+    <h3>Real avatars, scheduled regeneration</h3>
+    <p>Two smaller polish items: pull each engineer's actual GitHub avatar instead of a bare login
+    string, and move from a one-off manual snapshot to a scheduled GitHub Actions job that
+    regenerates <code>data/scores.json</code> on a cadence (nightly or weekly) so the dashboard
+    stays current without a person re-running the pipeline by hand.</p>
+  </div>
+
+  <h2>Deliberately never</h2>
+  <div class="callout warn">
+    <strong>An LLM will not be added to the ranking path.</strong> This is a design decision, not
+    a gap to fill later — see
+    <a href="methodology/">the methodology overview</a> for why ranking stays fully deterministic.
+    AI-assisted text generation (the "why" card copy) stays scoped to summarizing evidence
+    <em>after</em> a ranking is already fixed by plain arithmetic, and that boundary is intentional
+    going forward too.
+  </div>
+
+  <footer class="bottom">
+    <a href="./">← Back to the dashboard</a> · <a href="methodology/">Methodology</a>
+  </footer>
+</div>
+</body>
+</html>
