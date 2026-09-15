@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PostHog Engineering Impact — Last 90 Days</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6; /* Shipped Scope */
+    --series-2:       #eb6834; /* Leverage on Others */
+    --series-3:       #1baf7a; /* Ownership / Trust */
+    --card-bg:        #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --card-bg:        #1f1f1e;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+    --card-bg:        #1f1f1e;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px 24px 32px;
+  }
+  header.top {
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .methodology-line {
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 900px;
+    line-height: 1.45;
+    margin: 0 0 8px;
+  }
+  .freshness {
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin: 14px 0 10px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    display: grid;
+    grid-template-columns: 34px 190px 1fr 230px;
+    gap: 16px;
+    align-items: center;
+  }
+  .rank {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+  .who { min-width: 0; }
+  .login { font-weight: 600; font-size: 14.5px; }
+  .conf { color: var(--text-muted); font-size: 11.5px; margin-top: 1px; }
+  .why { min-width: 0; }
+  .why-text { font-size: 12.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px; }
+  .prs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .prs a {
+    font-size: 11.5px;
+    color: var(--series-1);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  .prs a:hover { text-decoration: underline; }
+
+  .bars { display: flex; flex-direction: column; gap: 4px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; }
+  .bar-label { width: 20px; font-size: 10.5px; color: var(--text-muted); text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; height: 8px; background: var(--gridline); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-val { width: 26px; font-size: 10.5px; color: var(--text-secondary); text-align: right; flex-shrink: 0; }
+  .score-badge {
+    font-size: 20px;
+    font-weight: 700;
+    text-align: right;
+  }
+  .score-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+
+  .cutline {
+    margin: 14px 2px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  details.methodology {
+    margin-top: 18px;
+    border-top: 1px solid var(--gridline);
+    padding-top: 12px;
+  }
+  details.methodology summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .method-body {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .method-body h4 { margin: 0 0 4px; color: var(--text-primary); font-size: 12.5px; }
+  .method-body p { margin: 0 0 10px; }
+
+  footer.bottom {
+    margin-top: 14px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .loading, .error {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>PostHog Engineering Impact — Last 90 Days</h1>
+    <p class="methodology-line" id="methodology-line">Loading methodology…</p>
+    <p class="freshness" id="freshness">Loading…</p>
+  </header>
+
+  <div class="legend">
+    <span><span class="dot" style="background:var(--series-1)"></span>Shipped Scope (45%)</span>
+    <span><span class="dot" style="background:var(--series-2)"></span>Leverage on Others (35%)</span>
+    <span><span class="dot" style="background:var(--series-3)"></span>Ownership / Trust (20%)</span>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="loading">Loading rankings…</div>
+  </div>
+
+  <p class="cutline" id="cutline"></p>
+
+  <details class="methodology">
+    <summary>How this works</summary>
+    <div class="method-body" id="method-body"></div>
+  </details>
+
+  <footer class="bottom" id="footer"></footer>
+</div>
+
+<script>
+async function main() {
+  let data;
+  try {
+    const res = await fetch('data/scores.json');
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('cards').innerHTML = '<div class="error">Could not load data/scores.json — ' + e + '</div>';
+    return;
+  }
+  render(data);
+}
+
+function pct(v) { return Math.max(2, Math.round(v)); }
+
+function cardHTML(r, whyOverride) {
+  const top5 = r.evidence.top_shipped.concat(r.evidence.best_review ? [r.evidence.best_review] : []);
+  const prLinks = top5.slice(0, 3).map(p =>
+    `<a href="${p.url}" target="_blank" rel="noopener">#${p.number}</a>`
+  ).join('');
+  const whyText = whyOverride || defaultWhy(r);
+  return `
+    <div class="card">
+      <div class="rank">#${r.rank}</div>
+      <div class="who">
+        <div class="login">${r.login}</div>
+        <div class="conf">${r.confidence.label} evidence — ${r.confidence.authored_prs} authored PR${r.confidence.authored_prs===1?'':'s'}, ${r.confidence.substantive_reviews} substantive review${r.confidence.substantive_reviews===1?'':'s'}</div>
+        <div class="conf">${r.stats.merged_prs} merged PRs · ${r.stats.distinct_collaborators} collaborators${r.stats.median_hours_to_merge!=null ? ' · ' + Math.round(r.stats.median_hours_to_merge) + 'h median to merge' : ''}</div>
+      </div>
+      <div class="why">
+        <div class="why-text">${whyText}</div>
+        <div class="prs">${prLinks || '<span style="color:var(--text-muted);font-size:11.5px">no linked PR evidence</span>'}</div>
+      </div>
+      <div class="bars">
+        <div class="score-row"><span style="font-size:11px;color:var(--text-muted)">Impact Score</span><span class="score-badge">${Math.round(r.impact_score)}</span></div>
+        ${barRow('S', r.components.shipped_scope, 'var(--series-1)')}
+        ${barRow('L', r.components.leverage_on_others, 'var(--series-2)')}
+        ${barRow('O', r.components.ownership_trust, 'var(--series-3)')}
+      </div>
+    </div>`;
+}
+
+function barRow(label, value, color) {
+  return `<div class="bar-row">
+    <span class="bar-label">${label}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:${pct(value)}%;background:${color}"></span></span>
+    <span class="bar-val">${Math.round(value)}</span>
+  </div>`;
+}
+
+function defaultWhy(r) {
+  const c = r.components;
+  const top = Object.entries({shipped: c.shipped_scope, leverage: c.leverage_on_others, ownership: c.ownership_trust})
+    .sort((a,b) => b[1]-a[1])[0][0];
+  const label = { shipped: 'broad structural reach across shared code', leverage: 'high review leverage helping teammates ship', ownership: 'trusted owner across multiple subsystems' }[top];
+  return `Ranked #${r.rank} primarily on ${label}.`;
+}
+
+function render(data) {
+  document.getElementById('methodology-line').textContent = data.meta.methodology;
+  document.getElementById('freshness').textContent =
+    `${data.meta.total_prs.toLocaleString()} merged PRs from ${data.meta.eligible_engineers} engineers analyzed, ` +
+    `${data.meta.window_start} to ${data.meta.window_end}. ` +
+    `${data.meta.bot_authored_prs_excluded} bot-authored and ${data.meta.mechanical_prs_excluded} mechanical PRs excluded from scoring.`;
+
+  const top5 = data.rankings.slice(0, 5);
+  const next5 = data.rankings.slice(5, 10);
+  document.getElementById('cards').innerHTML = top5.map(r => cardHTML(r, (data.why_overrides || {})[r.login])).join('');
+  document.getElementById('cutline').textContent = next5.length
+    ? `Ranks 6–10: ${next5.map(r => r.login).join(', ')}`
+    : '';
+
+  document.getElementById('method-body').innerHTML = `
+    <div>
+      <h4>Shipped Scope / Blast Radius — 45%</h4>
+      <p>Co-touch centrality: for every merged PR, we count how many <em>other</em> engineers also touched the same files elsewhere in the 90-day window, and sum a damped weight across the PR's files. This rewards changes that intersect code many people depend on over changes that merely span many folders. It is a proxy for engineering blast radius, not a claim about customer or revenue impact — GitHub data can't show that. Mechanical PRs (lockfile-only diffs, dependency bumps, bulk codemods) are excluded from this and all scored components, but still counted in the PR-count stat shown per card.</p>
+      <h4>Leverage on Others — 35%</h4>
+      <p>Substantive reviews given to other engineers' PRs (state APPROVED/CHANGES_REQUESTED with a non-trivial comment body — rubber-stamp approvals don't count), weighted by how many distinct teammates were reviewed, with a smaller bonus for faster review turnaround. Reviews from automated tools (CodeRabbit, Greptile, Dependabot, etc.) are excluded.</p>
+    </div>
+    <div>
+      <h4>Ownership / Trust Routing — 20%</h4>
+      <p>PR titles are parsed for their conventional-commit scope (e.g. <code>feat(scope): …</code>); when a title has no scope (${data.meta.scope_fallback_pct}% of PRs), we fall back to the dominant top-level directory of the changed files. Within each scope, the top-2 most active engineers (by authored + reviewed activity) earn ownership credit — this identifies who a team actually routes work to for a given subsystem.</p>
+      <h4>Evidence confidence &amp; ranking</h4>
+      <p>Every engineer with at least one qualifying contribution is ranked — there is no minimum-activity cutoff, so someone who shipped one large piece of infrastructure and spent the rest of the window reviewing can still surface. The confidence label shows how much evidence backs the number; it affects how a score should be <em>read</em>, never the ranking itself. All three components are percentile-ranked (not min-max normalized) across the eligible engineer set so a single volume outlier can't compress everyone else's score.</p>
+    </div>`;
+
+  document.getElementById('footer').textContent =
+    `Source: PostHog/posthog · Generated ${new Date(data.meta.generated_at || Date.now()).toISOString().slice(0,16).replace('T',' ')} UTC · Ranking is fully deterministic (Python); no LLM in the scoring path.`;
+}
+
+main();
+</script>
+</body>
+</html>
