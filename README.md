@@ -2,7 +2,7 @@
 
 Weave take-home: identify the most impactful engineers on `posthog/posthog` over the last 90 days.
 
-**Live dashboard:** _(GitHub Pages URL added after deploy)_
+**Live dashboard:** https://jeromebanks.github.io/posthog-impact-dashboard/
 
 ## Approach
 
